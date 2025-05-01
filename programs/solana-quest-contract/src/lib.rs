@@ -31,7 +31,6 @@ pub mod solana_quest_contract
         require!(entry_fee_account.funds_handler == funds_handler_pubkey.key(), ErrorCode::UnauthorizedFundsHandler);
 
         if_paid_account.if_paid = true; 
-        nonce_account.nonce = nonce.clone(); 
 
         let ix = system_instruction::transfer
         (
@@ -119,15 +118,6 @@ pub struct QuestEntryFeeContext<'info>
     )]
     pub if_paid_account: Account<'info,PaymentCheck>,
 
-    #[account(
-        init_if_needed, 
-        payer = payer, 
-        seeds = [payer.key.as_ref()], 
-        bump, 
-        space = size_of::<Nonce>() + 8 
-    )]
-    pub nonce_account: Account<'info,Nonce>,
-
     #[account(mut)]
     pub funds_handler_pubkey: SystemAccount<'info>,
 
@@ -176,14 +166,6 @@ pub struct PaymentCheck
 {
     pub if_paid: bool,
 }
-
-//seeds: user's pubkey 
-#[account] 
-pub struct Nonce 
-{
-    pub nonce: String,
-}
-
 
 #[event] 
 pub struct EntryFeeEvent
