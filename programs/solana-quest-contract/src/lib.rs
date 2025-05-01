@@ -8,25 +8,30 @@ pub mod solana_quest_contract
 {
     use super::*;
 
-    pub fn initialize(ctx: Context<InitializeContext>, funds_handler: Pubkey) -> Result<()> 
+    pub fn initialize(ctx: Context<InitializeContext>, funds_handler: Pubkey, entry_fee: u64) -> Result<()> 
     {
         let initialize_account = &mut ctx.accounts.initialize_account; 
-        let funds_handler_account = &mut ctx.accounts.funds_handler_account;
+        let entry_fee_account = &mut ctx.accounts.entry_fee_account;
         require!(initialize_account.initialize == false,ErrorCode::AlreadyInitialized);
-        funds_handler_account.funds_handler = funds_handler; 
+        entry_fee_account.funds_handler = funds_handler;
+        entry_fee_account.entry_fee = entry_fee;  
+        entry_fee_account.owner = ctx.accounts.payer.key(); 
         initialize_account.initialize = true; 
         Ok(())
     }
 
     pub fn quest_entry_fee(ctx: Context<QuestEntryFeeContext>, nonce: String) -> Result<()>
     {
-        let funds_handler_account = &mut ctx.accounts.funds_handler_account; 
+        let entry_fee_account = &mut ctx.accounts.entry_fee_account; 
         let if_paid_account = &mut ctx.accounts.if_paid_account; 
         let funds_handler_pubkey = &ctx.accounts.funds_handler_pubkey; 
-        let entry_fee = 100000000;
+        let entry_fee = entry_fee_account.entry_fee;
+        let nonce_account = &mut ctx.accounts.nonce_account; 
         require!(ctx.accounts.payer.lamports() >= entry_fee,ErrorCode::InsufficientBalance);
-        require!(funds_handler_account.funds_handler == funds_handler_pubkey.key(), ErrorCode::UnauthorizedFundsHandler);
-        require!(if_paid_account.if_paid == false, ErrorCode::AlreadyPaid);
+        require!(entry_fee_account.funds_handler == funds_handler_pubkey.key(), ErrorCode::UnauthorizedFundsHandler);
+
+        if_paid_account.if_paid = true; 
+        nonce_account.nonce = nonce.clone(); 
 
         let ix = system_instruction::transfer
         (
@@ -43,18 +48,25 @@ pub mod solana_quest_contract
                 ctx.accounts.funds_handler_pubkey.to_account_info(),
              ],
         )?;
-
-        if_paid_account.if_paid = true; 
         
         msg!("user:{}", *ctx.accounts.payer.key);
-        msg!("Nonce:{}", nonce.clone());
+        msg!("Nonce:{}", nonce);
         
         emit!(EntryFeeEvent{
             user: *ctx.accounts.payer.key, 
             nonce: nonce 
         });
-
         
+        Ok(())
+    }
+
+    pub fn set_entry_fee(ctx: Context<SetEntryFeeContext>, entry_fee: u64) -> Result<()>
+    {
+        let entry_fee_account = &mut ctx.accounts.entry_fee_account; 
+        require!(entry_fee_account.owner == ctx.accounts.payer.key(), ErrorCode::NotAuthorized);
+
+        entry_fee_account.entry_fee = entry_fee; 
+
         Ok(())
     }
 }
@@ -65,7 +77,7 @@ pub struct InitializeContext<'info>
     #[account(
         init, 
         payer = payer, 
-        seeds = [b"initialize_account"], 
+        seeds = [b"initialize"], 
         bump, 
         space = size_of::<Initialize>() + 8 
     )]
@@ -74,11 +86,11 @@ pub struct InitializeContext<'info>
     #[account(
         init_if_needed, 
         payer = payer, 
-        seeds = [b"funds_handler_account"], 
+        seeds = [b"entry_fee_account"], 
         bump, 
-        space = size_of::<FundsHandler>() + 8 
+        space = size_of::<EntryFee>() + 8 
     )]
-    pub funds_handler_account: Account<'info,FundsHandler>,
+    pub entry_fee_account: Account<'info,EntryFee>,
 
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -86,25 +98,35 @@ pub struct InitializeContext<'info>
 }
 
 #[derive(Accounts)]
+#[instruction(nonce:String)]
 pub struct QuestEntryFeeContext<'info>
 {
     #[account(
         init_if_needed, 
         payer = payer, 
-        seeds = [b"funds_handler_account"], 
+        seeds = [b"entry_fee_account"], 
         bump, 
-        space = size_of::<FundsHandler>() + 8 
+        space = size_of::<EntryFee>() + 8 
     )]
-    pub funds_handler_account: Account<'info,FundsHandler>,
+    pub entry_fee_account: Account<'info,EntryFee>,
 
     #[account(
         init_if_needed, 
         payer = payer, 
-        seeds = [b"if_paid_account"], 
+        seeds = [nonce.as_bytes()], 
         bump, 
         space = size_of::<PaymentCheck>() + 8 
     )]
     pub if_paid_account: Account<'info,PaymentCheck>,
+
+    #[account(
+        init_if_needed, 
+        payer = payer, 
+        seeds = [payer.key.as_ref()], 
+        bump, 
+        space = size_of::<Nonce>() + 8 
+    )]
+    pub nonce_account: Account<'info,Nonce>,
 
     #[account(mut)]
     pub funds_handler_pubkey: SystemAccount<'info>,
@@ -114,23 +136,54 @@ pub struct QuestEntryFeeContext<'info>
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct SetEntryFeeContext<'info>
+{
+    #[account(
+        init_if_needed, 
+        payer = payer, 
+        seeds = [b"entry_fee_account"], 
+        bump, 
+        space = size_of::<EntryFee>() + 8 
+    )]
+    pub entry_fee_account: Account<'info,EntryFee>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+
+//seeds: "initialize_account"
 #[account] 
 pub struct Initialize 
 {
     pub initialize: bool, 
 }
 
+//seeds: "entry_fee_account"
 #[account] 
-pub struct FundsHandler 
+pub struct EntryFee 
 {
     pub funds_handler: Pubkey, 
+    pub entry_fee: u64, 
+    pub owner: Pubkey 
 }
 
+//seeds: nonce passed as paremeter 
 #[account] 
 pub struct PaymentCheck 
 {
-    pub if_paid: bool, 
+    pub if_paid: bool,
 }
+
+//seeds: user's pubkey 
+#[account] 
+pub struct Nonce 
+{
+    pub nonce: String,
+}
+
 
 #[event] 
 pub struct EntryFeeEvent
@@ -153,4 +206,7 @@ pub enum ErrorCode
 
     #[msg("Already Paid!")]
     AlreadyPaid,
+
+    #[msg("Not Authorized!")]
+    NotAuthorized,
 }
