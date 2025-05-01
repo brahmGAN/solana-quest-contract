@@ -26,7 +26,6 @@ pub mod solana_quest_contract
         let if_paid_account = &mut ctx.accounts.if_paid_account; 
         let funds_handler_pubkey = &ctx.accounts.funds_handler_pubkey; 
         let entry_fee = entry_fee_account.entry_fee;
-        let nonce_account = &mut ctx.accounts.nonce_account; 
         require!(ctx.accounts.payer.lamports() >= entry_fee,ErrorCode::InsufficientBalance);
         require!(entry_fee_account.funds_handler == funds_handler_pubkey.key(), ErrorCode::UnauthorizedFundsHandler);
 
