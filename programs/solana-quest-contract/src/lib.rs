@@ -4,7 +4,7 @@ use std::mem::size_of;
 declare_id!("F5qfUhqkqEovEkQnxziJAVkY8spYevZU6Jd8VFCujYbJ");
 
 #[program]
-pub mod solana_quest_contract 
+pub mod entry_fee_quest
 {
     use super::*;
 
